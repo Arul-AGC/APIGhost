@@ -1,0 +1,1 @@
+"""APIGhost core module."""
