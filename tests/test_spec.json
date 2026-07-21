@@ -1,0 +1,209 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Vulnerable E-Commerce API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "summary": "Create a new order",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "product_id": {"type": "integer"},
+                  "quantity": {"type": "integer"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {"type": "integer"},
+                    "product_id": {"type": "integer"},
+                    "quantity": {"type": "integer"},
+                    "total": {"type": "number"},
+                    "status": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}": {
+      "get": {
+        "operationId": "getOrder",
+        "summary": "Get order by ID",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {"type": "integer"},
+                    "product_id": {"type": "integer"},
+                    "quantity": {"type": "integer"},
+                    "total": {"type": "number"},
+                    "status": {"type": "string"},
+                    "user_email": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteOrder",
+        "summary": "Delete an order",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "responses": {
+          "204": {}
+        }
+      }
+    },
+    "/api/users": {
+      "post": {
+        "operationId": "createUser",
+        "summary": "Register a new user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {"type": "string"},
+                  "email": {"type": "string", "format": "email"},
+                  "password": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user_id": {"type": "integer"},
+                    "username": {"type": "string"},
+                    "email": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}": {
+      "get": {
+        "operationId": "getUser",
+        "summary": "Get user profile",
+        "parameters": [
+          {"name": "user_id", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user_id": {"type": "integer"},
+                    "username": {"type": "string"},
+                    "email": {"type": "string"},
+                    "phone": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/create-review": {
+      "post": {
+        "operationId": "createReview",
+        "summary": "Submit a product review (non-RESTful path!)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "product_id": {"type": "integer"},
+                  "rating": {"type": "integer"},
+                  "comment": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "review_id": {"type": "integer"},
+                    "product_id": {"type": "integer"},
+                    "status": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fetch-review": {
+      "get": {
+        "operationId": "fetchReview",
+        "summary": "Fetch a review by ID (non-RESTful path!)",
+        "parameters": [
+          {"name": "review_id", "in": "query", "required": true, "schema": {"type": "integer"}}
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "review_id": {"type": "integer"},
+                    "product_id": {"type": "integer"},
+                    "rating": {"type": "integer"},
+                    "comment": {"type": "string"},
+                    "user_email": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
