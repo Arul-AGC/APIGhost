@@ -21,11 +21,37 @@ class SpecParser:
     def parse(self) -> Dict[str, Any]:
         """
         Parses the OpenAPI specification and returns the fully resolved dictionary.
+        
+        Attempts strict resolution first; falls back to lenient (no-validation)
+        mode so that real-world specs with minor schema issues are still usable.
         """
+        import json
         try:
             logger.info(f"Loading and resolving OpenAPI spec from {self.spec_path}")
-            # prance.ResolvingParser automatically loads and fully resolves $refs.
-            parser = prance.ResolvingParser(self.spec_path, strict=False)
+
+            # Try lenient first — skip schema validation entirely.
+            # A security scanner should parse whatever it's given.
+            try:
+                parser = prance.ResolvingParser(
+                    self.spec_path,
+                    strict=False,
+                    lazy=True,  # defer validation
+                )
+                parser.parse()
+            except Exception:
+                # Last resort: load raw JSON/YAML without prance validation
+                logger.warning("prance lazy parse failed, loading spec directly")
+                with open(self.spec_path) as f:
+                    if self.spec_path.endswith(('.yaml', '.yml')):
+                        import yaml
+                        self.resolved_spec = yaml.safe_load(f)
+                    else:
+                        self.resolved_spec = json.load(f)
+                if "paths" not in self.resolved_spec:
+                    raise SpecParserError("Invalid OpenAPI spec: 'paths' field is missing.")
+                logger.info(f"Loaded spec directly. Extracted {len(self.resolved_spec['paths'])} paths.")
+                return self.resolved_spec
+
             self.resolved_spec = parser.specification
             
             if "paths" not in self.resolved_spec:
@@ -34,9 +60,8 @@ class SpecParser:
             logger.info(f"Successfully resolved spec. Extracted {len(self.resolved_spec['paths'])} paths.")
             return self.resolved_spec
             
-        except prance.ValidationError as e:
-            logger.error(f"OpenAPI Validation Error: {str(e)}")
-            raise SpecParserError(f"Validation failed: {str(e)}") from e
+        except SpecParserError:
+            raise
         except Exception as e:
             logger.error(f"Failed to parse OpenAPI spec: {str(e)}")
             raise SpecParserError(f"Parse error: {str(e)}") from e

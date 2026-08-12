@@ -19,6 +19,16 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# Force UTF-8 on Windows to prevent cp1252 encoding crashes with Rich + emoji
+if sys.platform == "win32":
+    import os
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
@@ -329,18 +339,12 @@ def scan(
         task = progress.add_task("Scanning...", total=len(attack_chains))
 
         async def _run():
-            results = []
-            async with __import__('httpx').AsyncClient(
-                base_url=target,
-                timeout=__import__('httpx').Timeout(30.0),
-                follow_redirects=True,
-                verify=False,
-            ) as client:
-                for chain in attack_chains:
-                    result = await executor._execute_single_chain(client, chain)
-                    results.append(result)
-                    progress.advance(task)
-            return results
+            # execute_all handles client lifecycle, Tier 3 prefetching,
+            # and the Dead Letter Queue final sweep.
+            return await executor.execute_all(
+                attack_chains,
+                progress_callback=lambda: progress.advance(task),
+            )
 
         results = asyncio.run(_run())
 

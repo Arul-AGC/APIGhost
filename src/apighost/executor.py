@@ -42,7 +42,7 @@ import logging
 import time
 import random
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -53,7 +53,7 @@ from apighost.models import (
     HttpMethod,
     Verdict,
 )
-from apighost.generator import DataGenerator
+from apighost.generator import DataGenerator, DependencyPrefetcher
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,13 @@ class ChainExecutor:
     def __init__(self, config: ExecutorConfig, resolved_spec: dict[str, Any]):
         self.config = config
         self.spec = resolved_spec
-        self.generator = DataGenerator(resolved_spec)
+        # Data generator with Tier 3 dependency prefetching.
+        # The prefetcher starts client-less (prefetch disabled); its client
+        # is bound inside execute_all() once the httpx session exists.
+        self.prefetcher = DependencyPrefetcher(resolved_spec)
+        self.generator = DataGenerator(
+            resolved_spec, prefetcher=self.prefetcher
+        )
 
         # Network resilience components
         self._rate_limiter = TokenBucket(
@@ -265,7 +271,9 @@ class ChainExecutor:
         }
 
     async def execute_all(
-        self, chains: list[AttackChain]
+        self,
+        chains: list[AttackChain],
+        progress_callback: Callable[[], None] | None = None,
     ) -> list[ChainResult]:
         """
         Execute all attack chains against the target API.
@@ -276,6 +284,8 @@ class ChainExecutor:
 
         Args:
             chains: List of AttackChain objects from the Chain Builder.
+            progress_callback: Optional zero-arg callable invoked after each
+                chain completes (e.g. to advance a progress bar).
 
         Returns:
             List of ChainResult objects with verdicts.
@@ -293,6 +303,10 @@ class ChainExecutor:
             follow_redirects=True,
             verify=False,  # Many test APIs use self-signed certs
         ) as client:
+            # Enable Tier 3 dependency prefetching for this scan
+            self.prefetcher.client = client
+            self.prefetcher.auth_token = self.config.token_a
+
             for i, chain in enumerate(chains, 1):
                 logger.info(
                     f"Executing chain {i}/{len(chains)}: "
@@ -300,6 +314,9 @@ class ChainExecutor:
                 )
                 result = await self._execute_single_chain(client, chain)
                 self.results.append(result)
+
+                if progress_callback is not None:
+                    progress_callback()
 
                 # Brief pause between chains to avoid burst patterns
                 await asyncio.sleep(random.uniform(0.2, 0.8))
@@ -332,7 +349,11 @@ class ChainExecutor:
 
         try:
             # ── Phase 1: CREATE (User A) ──────────────────────
-            create_payload = self.generator.generate_payload(chain.create)
+            # Async generation enables Tier 3 dependency prefetching
+            # (harvesting real FK IDs from the target API before POSTing).
+            create_payload = await self.generator.generate_payload_async(
+                chain.create
+            )
             create_url = self._build_url(
                 chain.create.path, create_payload.get("path_params", {})
             )
@@ -391,13 +412,16 @@ class ChainExecutor:
                     )
 
             # ── Phase 2: READ as Owner (User A) ──────────────
-            read_url = self._build_read_url(chain, resource_id)
+            read_url, read_query_params = self._build_read_url(
+                chain, resource_id
+            )
 
             owner_response = await self._send_request(
                 client=client,
                 method=chain.read.method.value,
                 url=read_url,
                 headers=self._auth_headers(self.config.token_a),
+                query_params=read_query_params,
             )
 
             result.read_as_owner_status = owner_response.status_code
@@ -421,6 +445,7 @@ class ChainExecutor:
                 method=chain.read.method.value,
                 url=read_url,
                 headers=self._auth_headers(self.config.token_b),
+                query_params=read_query_params,
             )
 
             result.read_as_attacker_status = attacker_response.status_code
@@ -639,14 +664,19 @@ class ChainExecutor:
 
     def _build_read_url(
         self, chain: AttackChain, resource_id: Any
-    ) -> str:
+    ) -> tuple[str, dict[str, str]]:
         """
-        Build the READ URL with the resource ID injected.
+        Build the READ URL and query params with the resource ID injected.
 
         Handles both path-parameter-based and query-parameter-based
         endpoints:
-            - /api/orders/{id}          → /api/orders/42
-            - /api/fetch-order?id=42    → /api/fetch-order  (with query param)
+            - /api/orders/{id}          → ("/api/orders/42", {})
+            - /api/fetch-order?id=42    → ("/api/fetch-order", {"id": "42"})
+
+        Returns:
+            Tuple of (URL path, query parameters dict). The caller passes
+            the query params to httpx so Layer 2 (query-param) chains
+            actually transmit the resource ID.
         """
         read_ep = chain.read
 
@@ -655,12 +685,20 @@ class ChainExecutor:
             param_map = {}
             for pname in read_ep.path_param_names:
                 param_map[pname] = str(resource_id)
-            return self._build_url(read_ep.path, param_map)
-        else:
-            # For query-parameter-based reads, append as query string
-            # The caller should pass query_params separately, but for
-            # the URL we return the base path
-            return read_ep.path
+            return self._build_url(read_ep.path, param_map), {}
+
+        # Query-parameter-based read: inject the ID into the matching
+        # query parameter (e.g. /api/fetch-review?review_id=42).
+        query_params: dict[str, str] = {}
+        for param in read_ep.parameters:
+            if (
+                isinstance(param, dict)
+                and param.get("in") == "query"
+                and param.get("name") == chain.id_field
+            ):
+                query_params[param["name"]] = str(resource_id)
+
+        return read_ep.path, query_params
 
     def _extract_resource_id(
         self, response_body: dict[str, Any], id_field: str
