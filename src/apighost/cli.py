@@ -47,10 +47,29 @@ app = typer.Typer(
     help="APIGhost — Stateful BOLA Detection Engine",
     add_completion=False,
     rich_markup_mode="rich",
+    no_args_is_help=False, # We'll handle this manually to show the banner
 )
 console = Console()
 
-
+@app.callback(invoke_without_command=True)
+def main(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False, "--version", "-V", help="Display APIGhost version information."
+    ),
+):
+    """
+    APIGhost — Stateful BOLA Detection Engine
+    """
+    if version:
+        _print_banner()
+        console.print("[bold green]APIGhost[/bold green] version 0.1.0")
+        raise typer.Exit()
+        
+    if ctx.invoked_subcommand is None:
+        _print_banner()
+        console.print(ctx.get_help())
+        raise typer.Exit()
 # ─────────────────────────────────────────────
 # Banner
 # ─────────────────────────────────────────────
