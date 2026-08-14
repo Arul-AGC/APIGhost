@@ -44,6 +44,7 @@ class ChainSource(enum.Enum):
     """Which layer of the Chain Builder generated this chain."""
     LAYER1_PATH = "LAYER1_PATH"       # Path-based CRUD grouping
     LAYER2_SCHEMA = "LAYER2_SCHEMA"   # Schema-based producer-consumer matching
+    BFLA_HEURISTIC = "BFLA_HEURISTIC" # BFLA privileged endpoints
 
 
 class AuthMode(enum.Enum):
@@ -60,6 +61,8 @@ class ChainVariant(enum.Enum):
     READ = "READ"       # Attacker reads owner's resource (data leak)
     UPDATE = "UPDATE"   # Attacker modifies owner's resource (data corruption)
     DELETE = "DELETE"   # Attacker deletes owner's resource (data destruction)
+    BFLA = "BFLA"       # Attacker tries to access admin endpoint
+    MASS_ASSIGNMENT = "MASS_ASSIGNMENT" # Attacker attempts to modify restricted fields
 
 
 # ─────────────────────────────────────────────

@@ -464,6 +464,54 @@ class VerdictEngine:
             result.score = 0.0
             result.signals = {}
             return result
+        
+        from apighost.models import ChainVariant
+        
+        # Phase 2: BFLA
+        if result.chain.variant == ChainVariant.BFLA:
+            if result.read_as_attacker_status < 400:
+                result.verdict = Verdict.CONFIRMED
+                result.score = 1.0
+            elif result.read_as_attacker_status >= 500:
+                result.verdict = Verdict.ERROR
+                result.score = 0.0
+            else:
+                result.verdict = Verdict.SECURE
+                result.score = 0.0
+            result.signals = {}
+            return result
+            
+        # Phase 2: MASS_ASSIGNMENT
+        if result.chain.variant == ChainVariant.MASS_ASSIGNMENT:
+            canary = {"is_admin": True, "role": "admin", "balance": 99999}
+            leaked = False
+            
+            def _find_in_body(body: Any, target_key: str, target_val: Any) -> bool:
+                if isinstance(body, dict):
+                    for k, v in body.items():
+                        if k == target_key and v == target_val:
+                            return True
+                        if _find_in_body(v, target_key, target_val):
+                            return True
+                elif isinstance(body, list):
+                    for item in body:
+                        if _find_in_body(item, target_key, target_val):
+                            return True
+                return False
+                
+            for k, v in canary.items():
+                if _find_in_body(result.read_as_attacker_body, k, v):
+                    leaked = True
+                    break
+            
+            if leaked:
+                result.verdict = Verdict.CONFIRMED
+                result.score = 1.0
+            else:
+                result.verdict = Verdict.SECURE
+                result.score = 0.0
+            result.signals = {}
+            return result
 
         # Compute each signal independently.
         signals: dict[str, float] = {

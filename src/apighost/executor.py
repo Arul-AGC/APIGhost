@@ -406,9 +406,35 @@ class ChainExecutor:
             # ── Phase 1: CREATE (User A) ──────────────────────
             # Async generation enables Tier 3 dependency prefetching
             # (harvesting real FK IDs from the target API before POSTing).
+            if chain.variant == ChainVariant.BFLA:
+                # BFLA doesn't need to CREATE with token_a, we just test the attack endpoint
+                attack_ep = chain.attack
+                attack_method = attack_ep.method.value
+                payload = await self.generator.generate_payload_async(attack_ep)
+                url = self._build_url(attack_ep.path, payload.get("path_params", {}))
+                
+                attacker_response = await self._send_request(
+                    client=client,
+                    method=attack_method,
+                    url=url,
+                    headers=self._auth_headers(self.config.token_b),
+                    json_body=payload.get("body"),
+                    query_params=payload.get("query_params"),
+                )
+                
+                result.read_as_attacker_status = attacker_response.status_code
+                try:
+                    result.read_as_attacker_body = attacker_response.json()
+                except (json.JSONDecodeError, ValueError):
+                    result.read_as_attacker_body = {}
+                
+                logger.info(f"{chain.chain_id}: BFLA Attacker={result.read_as_attacker_status}")
+                return result
+
             create_payload = await self.generator.generate_payload_async(
                 chain.create
             )
+            
             create_url = self._build_url(
                 chain.create.path, create_payload.get("path_params", {})
             )
@@ -545,6 +571,42 @@ class ChainExecutor:
                     url=attack_url,
                     headers=self._auth_headers(self.config.token_b),
                 )
+            elif chain.variant == ChainVariant.MASS_ASSIGNMENT:
+                update_payload = await self.generator.generate_payload_async(attack_ep)
+                canary_fields = {"is_admin": True, "role": "admin", "balance": 99999}
+                if "body" in update_payload and isinstance(update_payload["body"], dict):
+                    update_payload["body"].update(canary_fields)
+                
+                attack_url = self._build_url(attack_ep.path, resource_ids)
+                if attack_ep.path_param_names:
+                    param_map = {}
+                    for pname in attack_ep.path_param_names:
+                        val = resource_ids.get(pname)
+                        if not val and resource_ids:
+                            val = list(resource_ids.values())[0]
+                        param_map[pname] = str(val)
+                    attack_url = self._build_url(attack_ep.path, param_map)
+                
+                # Perform the attack with token_b
+                attacker_response = await self._send_request(
+                    client=client,
+                    method=attack_method,
+                    url=attack_url,
+                    headers=self._auth_headers(self.config.token_b),
+                    json_body=update_payload.get("body"),
+                )
+                
+                # Read back with token_b (or token_a) to verify payload
+                verify_response = await self._send_request(
+                    client=client,
+                    method=chain.read.method.value,
+                    url=read_url,
+                    headers=self._auth_headers(self.config.token_b),
+                    query_params=read_query_params,
+                )
+                
+                # We overwrite attacker_response with the read for verdict check
+                attacker_response = verify_response
             else:
                 # Fallback to standard READ
                 attacker_response = await self._send_request(

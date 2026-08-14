@@ -93,11 +93,36 @@ class ChainBuilder:
             f"Layer 2 (Schema-Based): Generated {len(layer2_chains)} chains."
         )
 
+        # Step 4: BFLA (Broken Function Level Authorization)
+        bfla_chains = []
+        for ep in self.endpoints:
+            if self._is_privileged_endpoint(ep):
+                bfla_chain = AttackChain(
+                    chain_id=self._next_chain_id(),
+                    resource_name=self._extract_resource_name(ep.path) + " (Admin)",
+                    source=ChainSource.BFLA_HEURISTIC,
+                    create=ep,  # Dummy, won't be used for CREATE
+                    read=ep,    # Baseline (Owner/Admin)
+                    attack=ep,  # The attacker tests this endpoint
+                    variant=ChainVariant.BFLA,
+                    id_fields=[],
+                )
+                bfla_chains.append(bfla_chain)
+        
+        logger.info(f"BFLA: Generated {len(bfla_chains)} chains.")
+
         # Combine results
-        self.chains = layer1_chains + layer2_chains
+        self.chains = layer1_chains + layer2_chains + bfla_chains
         logger.info(f"Total attack chains discovered: {len(self.chains)}")
 
         return self.chains
+
+    def _is_privileged_endpoint(self, endpoint: Endpoint) -> bool:
+        # Check path for /admin/, /internal/, /system/
+        path_lower = endpoint.path.lower()
+        if any(keyword in path_lower for keyword in ["/admin/", "/internal/", "/system/"]):
+            return True
+        return False
 
     # ─────────────────────────────────────────
     # Step 1: Endpoint Extraction
@@ -294,6 +319,22 @@ class ChainBuilder:
                     confidence=0.95,
                 )
                 chains.append(delete_chain)
+
+            # MASS_ASSIGNMENT variant: Can attacker modify restricted fields?
+            target_ep = update_ep if update_ep else create_ep
+            mass_chain = AttackChain(
+                chain_id=self._next_chain_id(),
+                resource_name=resource_name,
+                source=ChainSource.LAYER1_PATH,
+                create=create_ep,
+                read=read_ep,
+                delete=delete_ep,
+                attack=target_ep,
+                variant=ChainVariant.MASS_ASSIGNMENT,
+                id_fields=id_fields,
+                confidence=0.95,
+            )
+            chains.append(mass_chain)
 
             # Mark these endpoints as matched
             for ep in group.endpoints:
