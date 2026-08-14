@@ -174,7 +174,7 @@ class Reporter:
                 "signals": {k: round(v, 4) for k, v in result.signals.items()},
                 "attack_endpoint": f"{result.chain.attack.method.value if result.chain.attack else result.chain.read.method.value} {result.chain.attack.path if result.chain.attack else result.chain.read.path}",
                 "create_status": result.create_status,
-                "resource_id": result.resource_id,
+                "resource_ids": result.resource_ids,
                 "read_as_owner_status": result.read_as_owner_status,
                 "read_as_attacker_status": result.read_as_attacker_status,
                 "teardown_success": result.teardown_success,

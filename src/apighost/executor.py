@@ -430,45 +430,46 @@ class ChainExecutor:
             except (json.JSONDecodeError, ValueError):
                 result.create_body = {}
 
-            # Extract resource ID from CREATE response
-            resource_id = self._extract_resource_id(
-                result.create_body, chain.id_field
+            # Extract resource IDs from CREATE response
+            resource_ids = self._extract_resource_ids(
+                result.create_body, chain.id_fields
             )
 
-            if resource_id is None:
+            if not resource_ids:
                 result.error = (
                     f"CREATE returned {result.create_status} but could not "
-                    f"extract '{chain.id_field}' from response body. "
+                    f"extract any of {chain.id_fields} from response body. "
                     f"Body: {json.dumps(result.create_body)[:200]}"
                 )
                 result.verdict = Verdict.ERROR
                 logger.warning(f"{chain.chain_id}: {result.error}")
                 return result
 
-            result.resource_id = resource_id
+            result.resource_ids = resource_ids
             logger.info(
                 f"{chain.chain_id}: Created resource with "
-                f"{chain.id_field}={resource_id}"
+                f"IDs={resource_ids}"
             )
 
             # Push teardown onto LIFO stack
             if chain.delete:
                 teardown_url = self._build_url(
-                    chain.delete.path,
-                    {chain.id_field: str(resource_id)},
+                    chain.delete.path, resource_ids
                 )
-                # Also populate path param names from the delete endpoint
                 if chain.delete.path_param_names:
+                    # Prefer using the actual param names if they differ
                     param_map = {}
                     for pname in chain.delete.path_param_names:
-                        param_map[pname] = str(resource_id)
-                    teardown_url = self._build_url(
-                        chain.delete.path, param_map
-                    )
+                        # Try to find a matching ID by name, or just use the first available one (naive fallback)
+                        val = resource_ids.get(pname)
+                        if not val and resource_ids:
+                            val = list(resource_ids.values())[0]
+                        param_map[pname] = str(val)
+                    teardown_url = self._build_url(chain.delete.path, param_map)
 
             # ── Phase 2: READ as Owner (User A) ──────────────
             read_url, read_query_params = self._build_read_url(
-                chain, resource_id
+                chain, resource_ids
             )
 
             owner_response = await self._send_request(
@@ -510,13 +511,15 @@ class ChainExecutor:
             elif chain.variant == ChainVariant.UPDATE:
                 # UPDATE BOLA test — attacker tries to modify owner's resource
                 update_payload = await self.generator.generate_payload_async(attack_ep)
-                attack_url = self._build_url(
-                    attack_ep.path,
-                    {chain.id_field: str(resource_id)},
-                )
+                attack_url = self._build_url(attack_ep.path, resource_ids)
                 # Populate all path params
                 if attack_ep.path_param_names:
-                    param_map = {pname: str(resource_id) for pname in attack_ep.path_param_names}
+                    param_map = {}
+                    for pname in attack_ep.path_param_names:
+                        val = resource_ids.get(pname)
+                        if not val and resource_ids:
+                            val = list(resource_ids.values())[0]
+                        param_map[pname] = str(val)
                     attack_url = self._build_url(attack_ep.path, param_map)
                 attacker_response = await self._send_request(
                     client=client,
@@ -527,12 +530,14 @@ class ChainExecutor:
                 )
             elif chain.variant == ChainVariant.DELETE:
                 # DELETE BOLA test — attacker tries to delete owner's resource
-                attack_url = self._build_url(
-                    attack_ep.path,
-                    {chain.id_field: str(resource_id)},
-                )
+                attack_url = self._build_url(attack_ep.path, resource_ids)
                 if attack_ep.path_param_names:
-                    param_map = {pname: str(resource_id) for pname in attack_ep.path_param_names}
+                    param_map = {}
+                    for pname in attack_ep.path_param_names:
+                        val = resource_ids.get(pname)
+                        if not val and resource_ids:
+                            val = list(resource_ids.values())[0]
+                        param_map[pname] = str(val)
                     attack_url = self._build_url(attack_ep.path, param_map)
                 attacker_response = await self._send_request(
                     client=client,
@@ -785,7 +790,7 @@ class ChainExecutor:
         return url
 
     def _build_read_url(
-        self, chain: AttackChain, resource_id: Any
+        self, chain: AttackChain, resource_ids: dict[str, Any]
     ) -> tuple[str, dict[str, str]]:
         """
         Build the READ URL and query params with the resource ID injected.
@@ -803,63 +808,76 @@ class ChainExecutor:
         read_ep = chain.read
 
         if read_ep.has_path_params:
-            # Inject into path parameters
             param_map = {}
             for pname in read_ep.path_param_names:
-                param_map[pname] = str(resource_id)
+                val = resource_ids.get(pname)
+                if not val and resource_ids:
+                    val = list(resource_ids.values())[0]
+                param_map[pname] = str(val)
             return self._build_url(read_ep.path, param_map), {}
 
-        # Query-parameter-based read: inject the ID into the matching
-        # query parameter (e.g. /api/fetch-review?review_id=42).
+        # Query-parameter-based read
         query_params: dict[str, str] = {}
         for param in read_ep.parameters:
-            if (
-                isinstance(param, dict)
-                and param.get("in") == "query"
-                and param.get("name") == chain.id_field
-            ):
-                query_params[param["name"]] = str(resource_id)
+            if isinstance(param, dict) and param.get("in") == "query":
+                pname = param.get("name")
+                if pname in chain.id_fields:
+                    query_params[pname] = str(resource_ids.get(pname, ""))
 
         return read_ep.path, query_params
 
-    def _extract_resource_id(
-        self, response_body: dict[str, Any], id_field: str
-    ) -> Any:
+    def _extract_resource_ids(
+        self, response_body: dict[str, Any], id_fields: list[str]
+    ) -> dict[str, Any]:
         """
-        Extract the resource ID from a CREATE response body.
+        Extract multiple resource IDs from a CREATE response body.
 
-        Searches for the id_field at the top level and one level deep.
-        Handles common response wrapper patterns like:
-            {"data": {"id": 42}}
-            {"result": {"order_id": "abc-123"}}
+        Searches for each id_field at the top level and one level deep.
+        Returns a mapping of field_name -> value.
         """
         if not isinstance(response_body, dict):
-            return None
+            return {}
 
-        # Direct lookup
-        if id_field in response_body:
-            return response_body[id_field]
+        extracted: dict[str, Any] = {}
+        
+        for id_field in id_fields:
+            val = None
+            id_lower = id_field.lower()
+            
+            # Direct lookup
+            if id_field in response_body:
+                val = response_body[id_field]
+            
+            # Search one level deep
+            if val is None:
+                for key, value in response_body.items():
+                    if isinstance(value, dict) and id_field in value:
+                        val = value[id_field]
+                        break
 
-        # Search one level deep (common wrappers)
-        for key, value in response_body.items():
-            if isinstance(value, dict) and id_field in value:
-                return value[id_field]
-
-        # Search with case-insensitive match
-        id_lower = id_field.lower()
-        for key, value in response_body.items():
-            if key.lower() == id_lower:
-                return value
-
-        # Search inside common wrapper keys
-        for wrapper_key in ("data", "result", "response", "body", "payload"):
-            wrapper = response_body.get(wrapper_key)
-            if isinstance(wrapper, dict):
-                for key, value in wrapper.items():
+            # Search with case-insensitive match
+            if val is None:
+                for key, value in response_body.items():
                     if key.lower() == id_lower:
-                        return value
+                        val = value
+                        break
 
-        return None
+            # Search inside common wrapper keys
+            if val is None:
+                for wrapper_key in ("data", "result", "response", "body", "payload"):
+                    wrapper = response_body.get(wrapper_key)
+                    if isinstance(wrapper, dict):
+                        for key, value in wrapper.items():
+                            if key.lower() == id_lower:
+                                val = value
+                                break
+                    if val is not None:
+                        break
+            
+            if val is not None:
+                extracted[id_field] = val
+
+        return extracted
 
 
 # ─────────────────────────────────────────────

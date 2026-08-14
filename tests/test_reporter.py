@@ -25,7 +25,7 @@ def test_reporter_generation():
         read_as_attacker_status=200,
         signals={"status_match": 1.0},
         duration_ms=150,
-        resource_id="123",
+        resource_ids={"id": "123"},
         create_status=201,
         read_as_owner_status=200,
         teardown_success=True

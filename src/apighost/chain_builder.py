@@ -243,8 +243,8 @@ class ChainBuilder:
             read_ep = group.read_endpoint
             delete_ep = group.delete_endpoint
 
-            # Determine the ID field that links CREATE response to READ path param
-            id_field = self._infer_id_field(create_ep, read_ep)
+            # Determine the ID fields that link CREATE response to READ path params
+            id_fields = self._infer_id_fields(create_ep, read_ep)
 
             # Extract a human-readable resource name from the path
             resource_name = self._extract_resource_name(base_path)
@@ -256,7 +256,7 @@ class ChainBuilder:
                 create=create_ep,
                 read=read_ep,
                 delete=delete_ep,
-                id_field=id_field,
+                id_fields=id_fields,
                 confidence=0.95,  # High confidence for RESTful path matching
             )
 
@@ -274,7 +274,7 @@ class ChainBuilder:
                     delete=delete_ep,
                     attack=update_ep,
                     variant=ChainVariant.UPDATE,
-                    id_field=id_field,
+                    id_fields=id_fields,
                     confidence=0.95,
                 )
                 chains.append(update_chain)
@@ -290,7 +290,7 @@ class ChainBuilder:
                     delete=None,  # No teardown — the attack IS the delete
                     attack=delete_ep,
                     variant=ChainVariant.DELETE,
-                    id_field=id_field,
+                    id_fields=id_fields,
                     confidence=0.95,
                 )
                 chains.append(delete_chain)
@@ -386,7 +386,7 @@ class ChainBuilder:
                     create=producer,
                     read=best_match,
                     delete=best_delete,
-                    id_field=best_field,
+                    id_fields=[best_field],
                     confidence=best_score,
                 )
 
@@ -492,20 +492,20 @@ class ChainBuilder:
     # Utility methods
     # ─────────────────────────────────────────
 
-    def _infer_id_field(
+    def _infer_id_fields(
         self, create_ep: Endpoint, read_ep: Endpoint
-    ) -> str:
+    ) -> list[str]:
         """
-        Infer the ID field name that links a CREATE response to a READ parameter.
+        Infer the ID fields that link a CREATE response to READ parameters.
 
         Priority:
-        1. If READ has a path param, use that name (e.g., "id" from /orders/{id}).
-        2. If CREATE has a response schema with ID-like fields, use the first match.
-        3. Default to "id".
+        1. If READ has path params, use those names (all of them).
+        2. If CREATE has a response schema with ID-like fields, use all matches.
+        3. Default to ["id"].
         """
-        # Priority 1: Path param from the READ endpoint
+        # Priority 1: Path params from the READ endpoint
         if read_ep.path_param_names:
-            return read_ep.path_param_names[-1]  # Last param is usually the resource ID
+            return list(read_ep.path_param_names)
 
         # Priority 2: ID fields from CREATE response schema
         if create_ep.response_schema:
@@ -513,10 +513,10 @@ class ChainBuilder:
                 create_ep.response_schema
             )
             if id_fields:
-                return id_fields[0]
+                return id_fields
 
         # Priority 3: Fallback
-        return "id"
+        return ["id"]
 
     def _extract_resource_name(self, path: str) -> str:
         """

@@ -230,7 +230,7 @@ def chains(
             f"POST {chain.create.path}",
             attack_str,
             f"DELETE {chain.delete.path}" if chain.delete else "[dim]None[/]",
-            chain.id_field,
+            ", ".join(chain.id_fields),
             f"[{conf_color}]{chain.confidence:.0%}[/]",
         )
 

@@ -188,8 +188,8 @@ class AttackChain:
     delete: Endpoint | None = None     # DELETE endpoint (User A cleans up — optional)
     attack: Endpoint | None = None     # The endpoint the attacker uses (UPDATE/DELETE)
 
-    # The linking field between CREATE response and READ parameter
-    id_field: str = "id"               # e.g., "id", "order_id", "uuid"
+    # The linking fields between CREATE response and READ parameters
+    id_fields: list[str] = field(default_factory=lambda: ["id"])
     
     variant: ChainVariant = ChainVariant.READ  # What the attacker does
 
@@ -229,7 +229,7 @@ class ChainResult:
     # Response data for evidence
     create_status: int = 0
     create_body: dict[str, Any] = field(default_factory=dict)
-    resource_id: Any = None
+    resource_ids: dict[str, Any] = field(default_factory=dict)
 
     read_as_owner_status: int = 0      # User A reads their own resource (baseline)
     read_as_owner_body: dict[str, Any] = field(default_factory=dict)
