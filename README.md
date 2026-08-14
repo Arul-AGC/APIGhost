@@ -21,12 +21,14 @@ If the target API doesn't publish an OpenAPI spec, APIGhost ships with a built-i
 
 ## Installation
 
-APIGhost requires Python 3.12+.
+APIGhost requires Python 3.12+ and can be installed natively.
 
 ```bash
-git clone https://github.com/Arul-AGC/APIGhost.git
-cd APIGhost
-poetry install
+# Recommended: Install via pipx to avoid environment conflicts
+pipx install git+https://github.com/Arul-AGC/APIGhost.git
+
+# Or standard pip installation
+pip install git+https://github.com/Arul-AGC/APIGhost.git
 ```
 
 ## Quick Start
