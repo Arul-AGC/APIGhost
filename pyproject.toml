@@ -19,12 +19,6 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
-[project.urls]
-Homepage = "https://github.com/Arul-AGC/APIGhost"
-Repository = "https://github.com/Arul-AGC/APIGhost.git"
-"Bug Tracker" = "https://github.com/Arul-AGC/APIGhost/issues"
-
-
 dependencies = [
     "httpx>=0.27.0",
     "prance>=23.6.21.0",
@@ -49,3 +43,8 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+
+[project.urls]
+Homepage = "https://github.com/Arul-AGC/APIGhost"
+Repository = "https://github.com/Arul-AGC/APIGhost.git"
+"Bug Tracker" = "https://github.com/Arul-AGC/APIGhost/issues"
