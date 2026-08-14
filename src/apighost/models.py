@@ -46,6 +46,22 @@ class ChainSource(enum.Enum):
     LAYER2_SCHEMA = "LAYER2_SCHEMA"   # Schema-based producer-consumer matching
 
 
+class AuthMode(enum.Enum):
+    """Supported authentication modes."""
+    BEARER = "bearer"        # Authorization: Bearer <token>
+    API_KEY = "api_key"      # Custom header: X-API-Key: <token>
+    COOKIE = "cookie"        # Cookie: <name>=<token>
+    BASIC = "basic"          # Authorization: Basic base64(user:pass)
+    CUSTOM = "custom"        # User-defined header: <name>: <token>
+
+
+class ChainVariant(enum.Enum):
+    """The type of BOLA test this chain performs."""
+    READ = "READ"       # Attacker reads owner's resource (data leak)
+    UPDATE = "UPDATE"   # Attacker modifies owner's resource (data corruption)
+    DELETE = "DELETE"   # Attacker deletes owner's resource (data destruction)
+
+
 # ─────────────────────────────────────────────
 # Spec Parser output
 # ─────────────────────────────────────────────
@@ -141,6 +157,14 @@ class ResourceGroup:
         return None
 
     @property
+    def update_endpoint(self) -> Endpoint | None:
+        """Find the PUT/PATCH (UPDATE) endpoint in this group."""
+        for ep in self.endpoints:
+            if ep.crud_role == CrudRole.UPDATE:
+                return ep
+        return None
+
+    @property
     def can_form_chain(self) -> bool:
         """A chain requires at minimum a CREATE and a READ endpoint."""
         return self.create_endpoint is not None and self.read_endpoint is not None
@@ -162,20 +186,33 @@ class AttackChain:
     create: Endpoint                   # POST endpoint (User A creates a resource)
     read: Endpoint                     # GET endpoint (User B attempts to read it)
     delete: Endpoint | None = None     # DELETE endpoint (User A cleans up — optional)
+    attack: Endpoint | None = None     # The endpoint the attacker uses (UPDATE/DELETE)
 
     # The linking field between CREATE response and READ parameter
     id_field: str = "id"               # e.g., "id", "order_id", "uuid"
+    
+    variant: ChainVariant = ChainVariant.READ  # What the attacker does
 
     # Confidence that this chain is valid (0.0 to 1.0)
     confidence: float = 1.0
 
     def __str__(self) -> str:
         teardown = f" → DELETE {self.delete.path}" if self.delete else ""
-        return (
-            f"[{self.chain_id}] {self.resource_name} "
-            f"(via {self.source.value})\n"
-            f"  POST {self.create.path} → GET {self.read.path}{teardown}"
-        )
+        attack_str = f" → {self.attack.method.value} {self.attack.path} (ATTACK)" if self.attack else ""
+        
+        # If it's not a READ variant, the chain flow is slightly different
+        if self.variant == ChainVariant.READ:
+            return (
+                f"[{self.chain_id}] {self.resource_name} "
+                f"(via {self.source.value}, {self.variant.value})\n"
+                f"  POST {self.create.path} → GET {self.read.path}{teardown}"
+            )
+        else:
+            return (
+                f"[{self.chain_id}] {self.resource_name} "
+                f"(via {self.source.value}, {self.variant.value})\n"
+                f"  POST {self.create.path} → GET {self.read.path}{attack_str}{teardown}"
+            )
 
 
 # ─────────────────────────────────────────────

@@ -206,8 +206,9 @@ def chains(
     chain_table.add_column("ID", style="bold cyan", width=12)
     chain_table.add_column("Resource", style="bold white")
     chain_table.add_column("Layer", width=18)
+    chain_table.add_column("Variant", style="magenta")
     chain_table.add_column("CREATE", style="blue")
-    chain_table.add_column("READ", style="green")
+    chain_table.add_column("ATTACK", style="green")
     chain_table.add_column("DELETE", style="red")
     chain_table.add_column("ID Field", style="yellow")
     chain_table.add_column("Confidence", justify="right")
@@ -220,12 +221,14 @@ def chains(
         )
         conf_color = "green" if chain.confidence >= 0.8 else "yellow"
 
+        attack_str = f"{chain.attack.method.value} {chain.attack.path}" if hasattr(chain, 'attack') and chain.attack else f"GET {chain.read.path}"
         chain_table.add_row(
             chain.chain_id,
             chain.resource_name,
             layer,
+            chain.variant.value,
             f"POST {chain.create.path}",
-            f"GET {chain.read.path}",
+            attack_str,
             f"DELETE {chain.delete.path}" if chain.delete else "[dim]None[/]",
             chain.id_field,
             f"[{conf_color}]{chain.confidence:.0%}[/]",
@@ -286,6 +289,18 @@ def scan(
     dry_run: bool = typer.Option(
         False, "--dry-run",
         help="Show generated payloads and chain plan without sending requests",
+    ),
+    auth_mode: str = typer.Option(
+        "bearer", "--auth-mode",
+        help="Authentication mode: bearer, api_key, cookie, basic, custom",
+    ),
+    auth_header: str = typer.Option(
+        "Authorization", "--auth-header",
+        help="Header name for API key or custom auth (e.g., X-API-Key)",
+    ),
+    refresh_cmd: Optional[str] = typer.Option(
+        None, "--refresh-cmd",
+        help="Shell command to refresh expired tokens (receives 'a' or 'b' as argument)",
     ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v",
@@ -359,10 +374,21 @@ def scan(
     console.print(f"  🎯 Target: {target}")
     console.print(f"  🔒 Rate: {rate} req/s, Concurrency: {concurrent}\n")
 
+    from apighost.models import AuthMode
+    try:
+        mode = AuthMode(auth_mode.lower())
+    except ValueError:
+        console.print(f"[bold red]Error:[/] Invalid auth mode: {auth_mode}")
+        console.print("Valid modes: bearer, api_key, cookie, basic, custom")
+        raise typer.Exit(code=2)
+
     executor_config = ExecutorConfig(
         base_url=target,
         token_a=token_a,
         token_b=token_b,
+        auth_mode=mode,
+        auth_header=auth_header,
+        token_refresh_cmd=refresh_cmd,
         requests_per_second=rate,
         max_concurrent=concurrent,
         verify_ssl=not no_verify,
@@ -427,6 +453,7 @@ def _display_results(results: list) -> None:
     )
     table.add_column("Chain", style="cyan", width=12)
     table.add_column("Resource", style="bold")
+    table.add_column("Variant", style="magenta")
     table.add_column("Verdict", width=14)
     table.add_column("Score", justify="right", width=8)
     table.add_column("Owner", justify="center", width=6)
@@ -453,6 +480,7 @@ def _display_results(results: list) -> None:
         table.add_row(
             result.chain.chain_id,
             result.chain.resource_name,
+            result.chain.variant.value,
             f"[{verdict_style}]{verdict_icon}[/]",
             f"[{verdict_style}]{result.score:.2f}[/]",
             str(result.read_as_owner_status),

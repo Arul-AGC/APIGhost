@@ -88,3 +88,58 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+import pytest
+
+class TestChainVariants:
+    """Test that chain builder emits UPDATE and DELETE chain variants."""
+
+    def test_update_chain_discovered(self):
+        """Verify UPDATE chain is discovered when PUT endpoint exists."""
+        from apighost.chain_builder import ChainBuilder
+        from apighost.models import ChainVariant
+        import json
+        
+        with open("tests/test_spec.json") as f:
+            spec = json.load(f)
+        
+        builder = ChainBuilder(spec)
+        chains = builder.build_chains()
+        
+        update_chains = [c for c in chains if c.variant == ChainVariant.UPDATE]
+        assert len(update_chains) > 0, "Should discover at least one UPDATE chain"
+        
+        for chain in update_chains:
+            assert chain.attack is not None
+            assert chain.attack.method.value in ("PUT", "PATCH")
+
+    def test_delete_chain_discovered(self):
+        """Verify DELETE chain is discovered when DELETE endpoint exists."""
+        from apighost.chain_builder import ChainBuilder
+        from apighost.models import ChainVariant
+        import json
+        
+        with open("tests/test_spec.json") as f:
+            spec = json.load(f)
+        
+        builder = ChainBuilder(spec)
+        chains = builder.build_chains()
+        
+        delete_chains = [c for c in chains if c.variant == ChainVariant.DELETE]
+        assert len(delete_chains) > 0, "Should discover at least one DELETE chain"
+
+    def test_read_chains_still_exist(self):
+        """Verify original READ chains are still generated."""
+        from apighost.chain_builder import ChainBuilder
+        from apighost.models import ChainVariant
+        import json
+        
+        with open("tests/test_spec.json") as f:
+            spec = json.load(f)
+        
+        builder = ChainBuilder(spec)
+        chains = builder.build_chains()
+        
+        read_chains = [c for c in chains if c.variant == ChainVariant.READ]
+        assert len(read_chains) >= 2, "Should still have at least 2 READ chains"

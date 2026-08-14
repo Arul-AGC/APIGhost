@@ -34,6 +34,7 @@ from apighost.models import (
     Endpoint,
     HttpMethod,
     ResourceGroup,
+    ChainVariant,
 )
 
 logger = logging.getLogger(__name__)
@@ -260,6 +261,39 @@ class ChainBuilder:
             )
 
             chains.append(chain)
+
+            # UPDATE variant: Can attacker modify someone else's resource?
+            update_ep = group.update_endpoint
+            if update_ep:
+                update_chain = AttackChain(
+                    chain_id=self._next_chain_id(),
+                    resource_name=resource_name,
+                    source=ChainSource.LAYER1_PATH,
+                    create=create_ep,
+                    read=read_ep,
+                    delete=delete_ep,
+                    attack=update_ep,
+                    variant=ChainVariant.UPDATE,
+                    id_field=id_field,
+                    confidence=0.95,
+                )
+                chains.append(update_chain)
+
+            # DELETE variant: Can attacker delete someone else's resource?
+            if delete_ep:
+                delete_chain = AttackChain(
+                    chain_id=self._next_chain_id(),
+                    resource_name=resource_name,
+                    source=ChainSource.LAYER1_PATH,
+                    create=create_ep,
+                    read=read_ep,
+                    delete=None,  # No teardown — the attack IS the delete
+                    attack=delete_ep,
+                    variant=ChainVariant.DELETE,
+                    id_field=id_field,
+                    confidence=0.95,
+                )
+                chains.append(delete_chain)
 
             # Mark these endpoints as matched
             for ep in group.endpoints:

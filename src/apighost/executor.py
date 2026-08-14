@@ -52,6 +52,8 @@ from apighost.models import (
     Endpoint,
     HttpMethod,
     Verdict,
+    AuthMode,
+    ChainVariant,
 )
 from apighost.generator import DataGenerator, DependencyPrefetcher
 
@@ -220,8 +222,10 @@ class ExecutorConfig:
     max_concurrent: int = 5                # Semaphore limit
     max_retries: int = 3                   # Retry attempts on 429/5xx
     timeout_seconds: float = 30.0          # Per-request timeout
-    auth_header: str = "Authorization"     # Header name for auth
-    auth_scheme: str = "Bearer"            # Auth scheme prefix
+    auth_mode: AuthMode = AuthMode.BEARER  # Authentication mode
+    auth_header: str = "Authorization"     # Header name (for API_KEY and CUSTOM modes)
+    auth_scheme: str = "Bearer"            # Scheme prefix (for BEARER mode)
+    token_refresh_cmd: str | None = None   # Shell command to refresh expired tokens
     verify_ssl: bool = True                # Verify SSL certs
 
 
@@ -271,13 +275,55 @@ class ChainExecutor:
         self.results: list[ChainResult] = []
 
     def _auth_headers(self, token: str) -> dict[str, str]:
-        """Build authorization headers for a given token."""
-        logger.debug(f"Auth: {self.config.auth_scheme} {_mask_token(token)}")
-        return {
-            self.config.auth_header: f"{self.config.auth_scheme} {token}",
+        """Build authorization headers for a given token based on auth mode."""
+        logger.debug(f"Auth: {self.config.auth_mode.value} {_mask_token(token)}")
+        headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        
+        match self.config.auth_mode:
+            case AuthMode.BEARER:
+                headers["Authorization"] = f"{self.config.auth_scheme} {token}"
+            case AuthMode.API_KEY:
+                headers[self.config.auth_header] = token
+            case AuthMode.COOKIE:
+                headers["Cookie"] = f"{self.config.auth_header}={token}"
+            case AuthMode.BASIC:
+                import base64
+                encoded = base64.b64encode(token.encode()).decode()
+                headers["Authorization"] = f"Basic {encoded}"
+            case AuthMode.CUSTOM:
+                headers[self.config.auth_header] = token
+        
+        return headers
+
+    import subprocess
+    def _refresh_token(self, token_type: str) -> str | None:
+        """Run the token refresh command and return the new token.
+        
+        The refresh command should print the new token to stdout.
+        We append the token_type ('a' or 'b') as an argument.
+        """
+        if not self.config.token_refresh_cmd:
+            return None
+        
+        try:
+            import subprocess
+            cmd = f"{self.config.token_refresh_cmd} {token_type}"
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                new_token = result.stdout.strip()
+                logger.info(f"Token refreshed for user {token_type}: {_mask_token(new_token)}")
+                return new_token
+            else:
+                logger.warning(f"Token refresh failed: {result.stderr.strip()}")
+                return None
+        except Exception as e:
+            logger.error(f"Token refresh error: {e}")
+            return None
 
     async def execute_all(
         self,
@@ -448,14 +494,61 @@ class ChainExecutor:
                 logger.warning(f"{chain.chain_id}: {result.error}")
                 return result
 
-            # ── Phase 3: READ as Attacker (User B) ───────────
-            attacker_response = await self._send_request(
-                client=client,
-                method=chain.read.method.value,
-                url=read_url,
-                headers=self._auth_headers(self.config.token_b),
-                query_params=read_query_params,
-            )
+            # ── Phase 3: ATTACK as Attacker (User B) ─────────
+            attack_ep = chain.attack if chain.attack else chain.read
+            attack_method = attack_ep.method.value
+            
+            if chain.variant == ChainVariant.READ:
+                # Standard READ BOLA test
+                attacker_response = await self._send_request(
+                    client=client,
+                    method=attack_method,
+                    url=read_url,
+                    headers=self._auth_headers(self.config.token_b),
+                    query_params=read_query_params,
+                )
+            elif chain.variant == ChainVariant.UPDATE:
+                # UPDATE BOLA test — attacker tries to modify owner's resource
+                update_payload = await self.generator.generate_payload_async(attack_ep)
+                attack_url = self._build_url(
+                    attack_ep.path,
+                    {chain.id_field: str(resource_id)},
+                )
+                # Populate all path params
+                if attack_ep.path_param_names:
+                    param_map = {pname: str(resource_id) for pname in attack_ep.path_param_names}
+                    attack_url = self._build_url(attack_ep.path, param_map)
+                attacker_response = await self._send_request(
+                    client=client,
+                    method=attack_method,
+                    url=attack_url,
+                    headers=self._auth_headers(self.config.token_b),
+                    json_body=update_payload.get("body"),
+                )
+            elif chain.variant == ChainVariant.DELETE:
+                # DELETE BOLA test — attacker tries to delete owner's resource
+                attack_url = self._build_url(
+                    attack_ep.path,
+                    {chain.id_field: str(resource_id)},
+                )
+                if attack_ep.path_param_names:
+                    param_map = {pname: str(resource_id) for pname in attack_ep.path_param_names}
+                    attack_url = self._build_url(attack_ep.path, param_map)
+                attacker_response = await self._send_request(
+                    client=client,
+                    method=attack_method,
+                    url=attack_url,
+                    headers=self._auth_headers(self.config.token_b),
+                )
+            else:
+                # Fallback to standard READ
+                attacker_response = await self._send_request(
+                    client=client,
+                    method=chain.read.method.value,
+                    url=read_url,
+                    headers=self._auth_headers(self.config.token_b),
+                    query_params=read_query_params,
+                )
 
             result.read_as_attacker_status = attacker_response.status_code
             try:
@@ -541,6 +634,26 @@ class ChainExecutor:
 
                     # Success or client error (4xx) — return immediately
                     if response.status_code < 500 and response.status_code != 429:
+                        # Auto-refresh on 401 if refresh command is configured
+                        if response.status_code == 401 and self.config.token_refresh_cmd and attempt < self.config.max_retries:
+                            # Determine which token to refresh based on the header
+                            current_token_a_header = self._auth_headers(self.config.token_a)
+                            if headers.get("Authorization") == current_token_a_header.get("Authorization") or \
+                               headers.get("Cookie") == current_token_a_header.get("Cookie") or \
+                               headers.get(self.config.auth_header) == current_token_a_header.get(self.config.auth_header):
+                                token_type = "a"
+                            else:
+                                token_type = "b"
+                            
+                            new_token = self._refresh_token(token_type)
+                            if new_token:
+                                if token_type == "a":
+                                    self.config.token_a = new_token
+                                else:
+                                    self.config.token_b = new_token
+                                # Rebuild headers with new token and retry
+                                headers = self._auth_headers(new_token)
+                                continue
                         return response
 
                     # 429 Too Many Requests — respect Retry-After header

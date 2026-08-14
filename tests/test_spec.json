@@ -78,6 +78,43 @@
         "responses": {
           "204": {}
         }
+      },
+      "put": {
+        "operationId": "updateOrder",
+        "summary": "Update an order",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "product_name": {"type": "string"},
+                  "quantity": {"type": "integer"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Order updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {"type": "integer"},
+                    "product_name": {"type": "string"},
+                    "quantity": {"type": "integer"}
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/users": {
@@ -133,6 +170,42 @@
                     "user_id": {"type": "integer"},
                     "username": {"type": "string"},
                     "email": {"type": "string"},
+                    "phone": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateUser",
+        "summary": "Update user profile",
+        "parameters": [
+          {"name": "user_id", "in": "path", "required": true, "schema": {"type": "integer"}}
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {"type": "string"},
+                  "phone": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user_id": {"type": "integer"},
+                    "username": {"type": "string"},
                     "phone": {"type": "string"}
                   }
                 }
