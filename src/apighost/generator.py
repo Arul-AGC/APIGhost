@@ -90,6 +90,8 @@ _ROLES = ["user", "admin", "moderator", "editor"]
 
 # Maps a regex pattern to a callable that produces a value
 _NAME_HEURISTICS: list[tuple[re.Pattern, Any]] = [
+    # UUID
+    (re.compile(r"uuid", re.I), "uuid"),
     # Email-like
     (re.compile(r"e[\-_]?mail", re.I), "email"),
     # Password
@@ -1008,9 +1010,11 @@ class DataGenerator:
         Returns:
             A generated value matching the hint.
         """
+        if hint == "uuid":
+            return str(uuid.uuid4())
+
         if hint == "email":
-            suffix = random.randint(1000, 9999)
-            return f"user_{suffix}@example.com"
+            return f"{random.choice(_FIRST_NAMES).lower()}@example.com"
 
         if hint == "password":
             return f"Gh0$t_Pass!{random.randint(10, 99)}"
@@ -1041,7 +1045,7 @@ class DataGenerator:
             return random.choice(_LAST_NAMES)
 
         if hint == "name":
-            return f"{random.choice(_FIRST_NAMES)} {random.choice(_LAST_NAMES)}"
+            return random.choice(_FIRST_NAMES)
 
         if hint == "address":
             return f"{random.randint(100, 9999)} {random.choice(_LAST_NAMES)} Street"

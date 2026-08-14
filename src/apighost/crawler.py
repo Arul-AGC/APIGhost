@@ -2,6 +2,7 @@ import asyncio
 import httpx
 import json
 import logging
+import random
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -12,10 +13,23 @@ class APICrawler:
     Discovers endpoints by brute-forcing a wordlist against a base URL
     and infers an OpenAPI-like spec from the responses.
     """
-    def __init__(self, base_url: str, wordlist: list[str]):
+    def __init__(self, base_url: str, wordlist: list[str], concurrent: int = 10, delay: float = 0.1, token: str = None, auth_mode: str = "bearer", auth_header: str = "Authorization"):
         self.base_url = base_url.rstrip("/")
         self.wordlist = wordlist
         self.discovered_paths = {}
+        self.concurrent = concurrent
+        self.delay = delay
+        self.token = token
+        self.auth_mode = auth_mode
+        self.auth_header = auth_header
+        self.semaphore = asyncio.Semaphore(self.concurrent)
+
+    def _get_auth_headers(self) -> dict:
+        if not self.token:
+            return {}
+        if self.auth_mode == "bearer":
+            return {self.auth_header: f"Bearer {self.token}"}
+        return {self.auth_header: self.token}
 
     async def crawl(self) -> Dict[str, Any]:
         """
@@ -47,22 +61,41 @@ class APICrawler:
     async def _check_path(self, client: httpx.AsyncClient, word: str):
         path = f"/{word}"
         url = f"{self.base_url}{path}"
+        headers = self._get_auth_headers()
         
-        # Test GET
-        try:
-            resp = await client.get(url)
-            if resp.status_code in (200, 401, 403, 405):
-                self._register_endpoint(path, "GET", resp)
-        except Exception as e:
-            logger.debug(f"Error GET {url}: {e}")
+        async with self.semaphore:
+            await asyncio.sleep(random.uniform(0, self.delay))
+            # Test GET
+            try:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code in (200, 401, 403, 405):
+                    self._register_endpoint(path, "GET", resp)
+                    
+                # Smart pathing
+                if resp.status_code in (200, 201):
+                    for id_val in ["1", "test-uuid"]:
+                        sub_path = f"{path}/{id_val}"
+                        sub_url = f"{self.base_url}{sub_path}"
+                        await asyncio.sleep(random.uniform(0, self.delay))
+                        try:
+                            sub_resp = await client.get(sub_url, headers=headers)
+                            if sub_resp.status_code in (200, 201, 401, 403):
+                                abs_path = f"{path}/{{id}}"
+                                self._register_endpoint(abs_path, "GET", sub_resp)
+                        except Exception as e:
+                            logger.debug(f"Error GET {sub_url}: {e}")
 
-        # Test POST
-        try:
-            resp = await client.post(url, json={})
-            if resp.status_code in (200, 201, 400, 401, 403, 405, 415, 422):
-                self._register_endpoint(path, "POST", resp)
-        except Exception as e:
-            logger.debug(f"Error POST {url}: {e}")
+            except Exception as e:
+                logger.debug(f"Error GET {url}: {e}")
+
+            # Test POST
+            try:
+                await asyncio.sleep(random.uniform(0, self.delay))
+                resp = await client.post(url, json={}, headers=headers)
+                if resp.status_code in (200, 201, 400, 401, 403, 405, 415, 422):
+                    self._register_endpoint(path, "POST", resp)
+            except Exception as e:
+                logger.debug(f"Error POST {url}: {e}")
 
     def _register_endpoint(self, path: str, method: str, response: httpx.Response):
         if path not in self.discovered_paths:

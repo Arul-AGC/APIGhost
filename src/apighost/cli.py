@@ -637,6 +637,11 @@ def crawl(
     base_url: str = typer.Argument(..., help="Base URL of the target API"),
     wordlist: str = typer.Argument(..., help="Path to a wordlist file"),
     output: str = typer.Option("spec.json", "--output", "-o", help="Output spec file path"),
+    concurrent: int = typer.Option(10, "--concurrent", help="Max concurrent requests"),
+    delay: float = typer.Option(0.1, "--delay", help="Jitter delay between requests"),
+    token: str = typer.Option(None, "--token", help="Bearer token for authenticated crawling"),
+    auth_mode: str = typer.Option("bearer", "--auth-mode"),
+    auth_header: str = typer.Option("Authorization", "--auth-header"),
 ) -> None:
     """Spec-less auto-discovery crawler."""
     from apighost.crawler import APICrawler
@@ -651,7 +656,7 @@ def crawl(
     words = path_path.read_text(encoding="utf-8").splitlines()
     words = [w.strip() for w in words if w.strip()]
     
-    crawler = APICrawler(base_url, words)
+    crawler = APICrawler(base_url, words, concurrent=concurrent, delay=delay, token=token, auth_mode=auth_mode, auth_header=auth_header)
     spec = asyncio.run(crawler.crawl())
     
     with open(output, "w", encoding="utf-8") as f:
