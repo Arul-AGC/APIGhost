@@ -272,7 +272,11 @@ def scan(
     ),
     output: Optional[str] = typer.Option(
         None, "--output", "-o",
-        help="Output file path for the report (JSON)",
+        help="Output file path for the report",
+    ),
+    report_format: str = typer.Option(
+        "json", "--format", "-f",
+        help="Report format: json, html, md, sarif",
     ),
     rate: float = typer.Option(
         10.0, "--rate", "-r",
@@ -425,7 +429,10 @@ def scan(
 
     # ── Save Report ──
     if output:
-        _save_report(results, output)
+        from apighost.reporter import Reporter
+        reporter = Reporter(results)
+        reporter.save(output, format=report_format)
+        console.print(f"\n  💾 Report saved to: [cyan]{output}[/]")
 
     # ── Summary ──
     _display_summary(results)
@@ -543,35 +550,6 @@ def _display_summary(results: list) -> None:
             "[bold green]✅ No BOLA vulnerabilities detected.[/]\n"
         )
 
-
-def _save_report(results: list, output_path: str) -> None:
-    """Save scan results to a JSON report file."""
-    report = {
-        "tool": "APIGhost",
-        "version": __version__,
-        "results": [],
-    }
-
-    for result in results:
-        report["results"].append({
-            "chain_id": result.chain.chain_id,
-            "resource": result.chain.resource_name,
-            "verdict": result.verdict.value,
-            "score": round(result.score, 4),
-            "signals": {k: round(v, 4) for k, v in result.signals.items()},
-            "create_status": result.create_status,
-            "resource_id": result.resource_id,
-            "read_as_owner_status": result.read_as_owner_status,
-            "read_as_attacker_status": result.read_as_attacker_status,
-            "teardown_success": result.teardown_success,
-            "duration_ms": result.duration_ms,
-            "error": result.error,
-        })
-
-    with open(output_path, "w") as f:
-        json.dump(report, f, indent=2)
-
-    console.print(f"\n  💾 Report saved to: [cyan]{output_path}[/]")
 
 
 # ─────────────────────────────────────────────

@@ -1,0 +1,20 @@
+# APIGhost Scan Report
+
+**Generated:** {{ timestamp }}  
+**Version:** APIGhost v{{ version }}
+
+## Summary
+- **Total Chains Scanned:** {{ total }}
+- **Confirmed BOLA:** {{ confirmed }} 🔴
+- **Likely BOLA:** {{ likely }} 🟠
+- **Possible:** {{ possible }} 🟡
+- **Secure:** {{ secure }} 🟢
+- **Errors:** {{ errors }} ⚪
+
+## Detailed Results
+
+| Chain ID | Resource | Variant | Verdict | Score | Attack Endpoint |
+|----------|----------|---------|---------|-------|-----------------|
+{% for result in results -%}
+| {{ result.chain.chain_id }} | {{ result.chain.resource_name }} | {{ result.chain.variant.value }} | **{{ result.verdict.value }}** | {{ "%.2f"|format(result.score) }} | `{{ result.chain.attack.method.value if result.chain.attack else result.chain.read.method.value }} {{ result.chain.attack.path if result.chain.attack else result.chain.read.path }}` |
+{% endfor %}

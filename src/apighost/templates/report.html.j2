@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>APIGhost Scan Report</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 40px; color: #333; }
+        h1 { color: #2c3e50; }
+        .summary { display: flex; gap: 20px; margin-bottom: 30px; }
+        .stat-box { padding: 15px; border-radius: 8px; text-align: center; min-width: 120px; }
+        .stat-box h3 { margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; color: #666; }
+        .stat-box p { margin: 0; font-size: 24px; font-weight: bold; }
+        .bg-red { background: #fee2e2; color: #991b1b; }
+        .bg-yellow { background: #fef3c7; color: #92400e; }
+        .bg-green { background: #dcfce7; color: #166534; }
+        .bg-gray { background: #f3f4f6; color: #374151; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; }
+        .verdict-CONFIRMED { color: #dc2626; font-weight: bold; }
+        .verdict-LIKELY { color: #d97706; font-weight: bold; }
+        .verdict-SECURE { color: #16a34a; }
+    </style>
+</head>
+<body>
+    <h1>APIGhost Scan Report</h1>
+    <p>Generated on {{ timestamp }} | APIGhost v{{ version }}</p>
+    
+    <div class="summary">
+        <div class="stat-box bg-gray"><h3>Total Scanned</h3><p>{{ total }}</p></div>
+        <div class="stat-box bg-red"><h3>Confirmed BOLA</h3><p>{{ confirmed }}</p></div>
+        <div class="stat-box bg-yellow"><h3>Likely BOLA</h3><p>{{ likely }}</p></div>
+        <div class="stat-box bg-green"><h3>Secure</h3><p>{{ secure }}</p></div>
+    </div>
+
+    <h2>Discovered Attack Chains</h2>
+    <table>
+        <tr>
+            <th>Chain ID</th>
+            <th>Resource</th>
+            <th>Variant</th>
+            <th>Verdict</th>
+            <th>Score</th>
+            <th>Attack Endpoint</th>
+        </tr>
+        {% for result in results %}
+        <tr>
+            <td>{{ result.chain.chain_id }}</td>
+            <td>{{ result.chain.resource_name }}</td>
+            <td>{{ result.chain.variant.value }}</td>
+            <td class="verdict-{{ result.verdict.value }}">{{ result.verdict.value }}</td>
+            <td>{{ "%.2f"|format(result.score) }}</td>
+            <td>{{ result.chain.attack.method.value if result.chain.attack else result.chain.read.method.value }} {{ result.chain.attack.path if result.chain.attack else result.chain.read.path }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
