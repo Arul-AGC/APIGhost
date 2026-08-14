@@ -66,6 +66,8 @@ class ChainVariant(enum.Enum):
     EXCESSIVE_DATA = "EXCESSIVE_DATA"
     RATE_LIMIT = "RATE_LIMIT"
     INJECTION = "INJECTION"
+    BOLA_HPP = "BOLA_HPP"       # HTTP Parameter Pollution bypass
+    BOLA_ARRAY = "BOLA_ARRAY"   # Array Wrapping bypass
 
 
 # ─────────────────────────────────────────────

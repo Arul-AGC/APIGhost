@@ -174,8 +174,51 @@ class ChainBuilder:
                 injection_chains.append(inj_chain)
         logger.info(f"Injection: Generated {len(injection_chains)} chains.")
 
+        # Step 8: Advanced BOLA (HPP and Array Wrapping)
+        advanced_bola_chains = []
+        for chain in layer1_chains + layer2_chains:
+            if chain.variant == ChainVariant.READ:
+                # HTTP Parameter Pollution
+                hpp_chain = AttackChain(
+                    chain_id=self._next_chain_id(),
+                    resource_name=chain.resource_name + " (HPP)",
+                    source=chain.source,
+                    create=chain.create,
+                    read=chain.read,
+                    delete=chain.delete,
+                    attack=chain.attack,
+                    variant=ChainVariant.BOLA_HPP,
+                    id_fields=chain.id_fields,
+                    confidence=chain.confidence * 0.8
+                )
+                advanced_bola_chains.append(hpp_chain)
+                
+                # Array Wrapping
+                array_chain = AttackChain(
+                    chain_id=self._next_chain_id(),
+                    resource_name=chain.resource_name + " (Array)",
+                    source=chain.source,
+                    create=chain.create,
+                    read=chain.read,
+                    delete=chain.delete,
+                    attack=chain.attack,
+                    variant=ChainVariant.BOLA_ARRAY,
+                    id_fields=chain.id_fields,
+                    confidence=chain.confidence * 0.8
+                )
+                advanced_bola_chains.append(array_chain)
+        logger.info(f"Advanced BOLA: Generated {len(advanced_bola_chains)} chains.")
+
         # Combine results
-        self.chains = layer1_chains + layer2_chains + bfla_chains + excessive_chains + rate_limit_chains + injection_chains
+        self.chains = (
+            layer1_chains + 
+            layer2_chains + 
+            bfla_chains + 
+            excessive_chains + 
+            rate_limit_chains + 
+            injection_chains +
+            advanced_bola_chains
+        )
         logger.info(f"Total attack chains discovered: {len(self.chains)}")
 
         return self.chains
