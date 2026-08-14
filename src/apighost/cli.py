@@ -551,6 +551,47 @@ def _display_summary(results: list) -> None:
         )
 
 
+# ─────────────────────────────────────────────
+# Import Command
+# ─────────────────────────────────────────────
+
+@app.command(name="import")
+def import_traffic(
+    filepath: str = typer.Argument(..., help="Path to HAR or Burp XML file"),
+    format: str = typer.Option("har", "--format", "-f", help="Format: har or burp"),
+    output: str = typer.Option("imported_spec.json", "--output", "-o", help="Output spec file path"),
+) -> None:
+    """Import HAR or Burp traffic logs to generate an APIGhost spec."""
+    from apighost.importer import TrafficImporter
+    
+    console.print(f"[bold blue]APIGhost Traffic Importer[/]")
+    console.print(f"Reading {format.upper()} file: {filepath}")
+    
+    importer = TrafficImporter()
+    
+    try:
+        if format.lower() == "har":
+            spec = importer.import_har(filepath)
+        elif format.lower() == "burp":
+            spec = importer.import_burp_xml(filepath)
+        else:
+            console.print(f"[bold red]Error:[/] Unsupported format: {format}")
+            raise typer.Exit(1)
+            
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump(spec, f, indent=2)
+            
+        endpoints_count = sum(len(methods) for methods in spec.get("paths", {}).values())
+        console.print(f"[bold green]Success![/] Imported {endpoints_count} endpoints.")
+        console.print(f"Spec saved to: {output}")
+        console.print(f"\nYou can now run: apighost chains --spec {output}")
+        
+    except Exception as e:
+        console.print(f"[bold red]Error importing file:[/] {e}")
+        raise typer.Exit(1)
+
+
+
 
 # ─────────────────────────────────────────────
 # Version Command
