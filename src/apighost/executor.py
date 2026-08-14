@@ -58,6 +58,13 @@ from apighost.generator import DataGenerator, DependencyPrefetcher
 logger = logging.getLogger(__name__)
 
 
+def _mask_token(token: str) -> str:
+    """Mask a token for safe logging, showing only the last 4 characters."""
+    if len(token) <= 8:
+        return "****" + token[-4:] if len(token) >= 4 else "****"
+    return token[:4] + "****" + token[-4:]
+
+
 # ─────────────────────────────────────────────
 # Token Bucket Rate Limiter
 # ─────────────────────────────────────────────
@@ -215,6 +222,7 @@ class ExecutorConfig:
     timeout_seconds: float = 30.0          # Per-request timeout
     auth_header: str = "Authorization"     # Header name for auth
     auth_scheme: str = "Bearer"            # Auth scheme prefix
+    verify_ssl: bool = True                # Verify SSL certs
 
 
 # ─────────────────────────────────────────────
@@ -264,6 +272,7 @@ class ChainExecutor:
 
     def _auth_headers(self, token: str) -> dict[str, str]:
         """Build authorization headers for a given token."""
+        logger.debug(f"Auth: {self.config.auth_scheme} {_mask_token(token)}")
         return {
             self.config.auth_header: f"{self.config.auth_scheme} {token}",
             "Content-Type": "application/json",
@@ -301,7 +310,7 @@ class ChainExecutor:
             base_url=self.config.base_url,
             timeout=httpx.Timeout(self.config.timeout_seconds),
             follow_redirects=True,
-            verify=False,  # Many test APIs use self-signed certs
+            verify=self.config.verify_ssl,
         ) as client:
             # Enable Tier 3 dependency prefetching for this scan
             self.prefetcher.client = client

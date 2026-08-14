@@ -16,3 +16,9 @@ venv/
 env/
 .env
 .venv
+
+# Swap files
+*.swp
+*.swo
+*~
+*.save

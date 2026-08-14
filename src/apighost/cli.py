@@ -41,6 +41,7 @@ from rich import box
 from apighost.parser import SpecParser, SpecParserError
 from apighost.chain_builder import ChainBuilder
 from apighost.models import ChainSource, Verdict
+from apighost import __version__
 
 app = typer.Typer(
     name="apighost",
@@ -63,7 +64,7 @@ def main(
     """
     if version:
         _print_banner()
-        console.print("[bold green]APIGhost[/bold green] version 0.1.0")
+        console.print(f"[bold green]APIGhost[/bold green] version {__version__}")
         raise typer.Exit()
         
     if ctx.invoked_subcommand is None:
@@ -278,6 +279,14 @@ def scan(
         5, "--concurrent", "-c",
         help="Max concurrent requests (semaphore)",
     ),
+    no_verify: bool = typer.Option(
+        False, "--no-verify",
+        help="Disable SSL certificate verification",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run",
+        help="Show generated payloads and chain plan without sending requests",
+    ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v",
         help="Enable debug logging",
@@ -333,6 +342,18 @@ def scan(
         f"({l1} Layer 1, {l2} Layer 2)\n"
     )
 
+    if dry_run:
+        from apighost.generator import DataGenerator, DependencyPrefetcher
+        data_gen = DataGenerator(resolved)
+        for chain in attack_chains:
+            payload = data_gen.generate_payload(chain.create)
+            console.print(Panel(
+                json.dumps(payload, indent=2) if payload else "{}",
+                title=f"Payload: {chain.chain_id}",
+                border_style="green"
+            ))
+        raise typer.Exit(code=0)
+
     # ── Phase 3: Execute Chains ──
     console.print("[bold cyan]Phase 3:[/] Executing cross-user attack chains...")
     console.print(f"  🎯 Target: {target}")
@@ -344,6 +365,7 @@ def scan(
         token_b=token_b,
         requests_per_second=rate,
         max_concurrent=concurrent,
+        verify_ssl=not no_verify,
     )
     executor = ChainExecutor(executor_config, resolved)
 
@@ -381,6 +403,12 @@ def scan(
 
     # ── Summary ──
     _display_summary(results)
+
+    # CI/CD exit codes
+    confirmed = sum(1 for r in results if r.verdict == Verdict.CONFIRMED)
+    likely = sum(1 for r in results if r.verdict == Verdict.LIKELY)
+    if confirmed > 0 or likely > 0:
+        raise typer.Exit(code=1)
 
 
 # ─────────────────────────────────────────────
@@ -492,7 +520,7 @@ def _save_report(results: list, output_path: str) -> None:
     """Save scan results to a JSON report file."""
     report = {
         "tool": "APIGhost",
-        "version": "0.1.0",
+        "version": __version__,
         "results": [],
     }
 
@@ -525,7 +553,7 @@ def _save_report(results: list, output_path: str) -> None:
 @app.command()
 def version() -> None:
     """Display APIGhost version information."""
-    console.print("[bold cyan]APIGhost[/] v0.1.0")
+    console.print(f"[bold cyan]APIGhost[/] v{__version__}")
     console.print("Stateful BOLA Detection Engine")
     console.print("https://github.com/Arul-AGC/APIGhost")
 
