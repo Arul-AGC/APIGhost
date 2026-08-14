@@ -310,6 +310,10 @@ def scan(
         False, "--verbose", "-v",
         help="Enable debug logging",
     ),
+    aggressive: bool = typer.Option(
+        False, "--aggressive",
+        help="Enable aggressive tests (Rate Limiting, Injection)",
+    ),
 ) -> None:
     """
     Execute a full BOLA scan against a live API.
@@ -396,6 +400,7 @@ def scan(
         requests_per_second=rate,
         max_concurrent=concurrent,
         verify_ssl=not no_verify,
+        aggressive=aggressive,
     )
     executor = ChainExecutor(executor_config, resolved)
 

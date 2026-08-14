@@ -111,8 +111,71 @@ class ChainBuilder:
         
         logger.info(f"BFLA: Generated {len(bfla_chains)} chains.")
 
+        # Step 5: Excessive Data Exposure
+        excessive_chains = []
+        for chain in layer1_chains + layer2_chains:
+            if chain.variant == ChainVariant.READ and chain.read.response_schema:
+                ex_chain = AttackChain(
+                    chain_id=self._next_chain_id(),
+                    resource_name=chain.resource_name,
+                    source=chain.source,
+                    create=chain.create,
+                    read=chain.read,
+                    delete=chain.delete,
+                    attack=chain.attack,
+                    variant=ChainVariant.EXCESSIVE_DATA,
+                    id_fields=chain.id_fields,
+                    confidence=chain.confidence
+                )
+                excessive_chains.append(ex_chain)
+        logger.info(f"Excessive Data: Generated {len(excessive_chains)} chains.")
+
+        # Step 6: Rate Limiting
+        rate_limit_chains = []
+        for ep in self.endpoints:
+            path_lower = ep.path.lower()
+            if any(k in path_lower for k in ["/login", "/auth", "/otp", "/token"]):
+                rl_chain = AttackChain(
+                    chain_id=self._next_chain_id(),
+                    resource_name=self._extract_resource_name(ep.path) + " (Auth)",
+                    source=ChainSource.BFLA_HEURISTIC,
+                    create=ep,
+                    read=ep,
+                    attack=ep,
+                    variant=ChainVariant.RATE_LIMIT,
+                    id_fields=[]
+                )
+                rate_limit_chains.append(rl_chain)
+        logger.info(f"Rate Limiting: Generated {len(rate_limit_chains)} chains.")
+
+        # Step 7: Injection
+        injection_chains = []
+        for ep in self.endpoints:
+            has_str_params = False
+            for p in ep.parameters:
+                if isinstance(p, dict) and p.get("schema", {}).get("type") == "string":
+                    has_str_params = True
+                    break
+            
+            if ep.request_body_schema:
+                has_str_params = True
+                
+            if has_str_params:
+                inj_chain = AttackChain(
+                    chain_id=self._next_chain_id(),
+                    resource_name=self._extract_resource_name(ep.path),
+                    source=ChainSource.BFLA_HEURISTIC,
+                    create=ep,
+                    read=ep,
+                    attack=ep,
+                    variant=ChainVariant.INJECTION,
+                    id_fields=[]
+                )
+                injection_chains.append(inj_chain)
+        logger.info(f"Injection: Generated {len(injection_chains)} chains.")
+
         # Combine results
-        self.chains = layer1_chains + layer2_chains + bfla_chains
+        self.chains = layer1_chains + layer2_chains + bfla_chains + excessive_chains + rate_limit_chains + injection_chains
         logger.info(f"Total attack chains discovered: {len(self.chains)}")
 
         return self.chains

@@ -513,6 +513,70 @@ class VerdictEngine:
             result.signals = {}
             return result
 
+        # Phase 2: EXCESSIVE_DATA
+        if result.chain.variant == ChainVariant.EXCESSIVE_DATA:
+            schema = result.chain.read.response_schema
+            if schema and result.read_as_attacker_status == 200:
+                def extract_schema_keys(s, prefix=""):
+                    keys = set()
+                    if not isinstance(s, dict): return keys
+                    # If it's an array schema at root
+                    if "items" in s and not "properties" in s:
+                        return extract_schema_keys(s["items"], "[]")
+                    
+                    props = s.get("properties", {})
+                    for k, v in props.items():
+                        current = f"{prefix}.{k}" if prefix else k
+                        keys.add(current)
+                        if isinstance(v, dict):
+                            if "properties" in v:
+                                keys.update(extract_schema_keys(v, current))
+                            elif "items" in v and isinstance(v["items"], dict):
+                                keys.update(extract_schema_keys(v["items"], f"{current}[]"))
+                    return keys
+                
+                expected_keys = extract_schema_keys(schema)
+                response_keys = _extract_key_paths(result.read_as_attacker_body)
+                
+                excessive = response_keys - expected_keys
+                if excessive:
+                    result.verdict = Verdict.CONFIRMED
+                    result.score = 1.0
+                else:
+                    result.verdict = Verdict.SECURE
+                    result.score = 0.0
+            else:
+                result.verdict = Verdict.SECURE
+                result.score = 0.0
+            result.signals = {}
+            return result
+            
+        # Phase 2: RATE_LIMIT
+        if result.chain.variant == ChainVariant.RATE_LIMIT:
+            statuses = result.read_as_attacker_body.get("statuses", [])
+            # If we sent requests but got no 429
+            if statuses and 429 not in statuses:
+                result.verdict = Verdict.CONFIRMED
+                result.score = 1.0
+            else:
+                result.verdict = Verdict.SECURE
+                result.score = 0.0
+            result.signals = {}
+            return result
+            
+        # Phase 2: INJECTION
+        if result.chain.variant == ChainVariant.INJECTION:
+            status = result.read_as_attacker_status
+            body_text = str(result.read_as_attacker_body).lower()
+            if status >= 500 or "syntax error" in body_text or "sql" in body_text or "jinja" in body_text:
+                result.verdict = Verdict.CONFIRMED
+                result.score = 1.0
+            else:
+                result.verdict = Verdict.SECURE
+                result.score = 0.0
+            result.signals = {}
+            return result
+
         # Compute each signal independently.
         signals: dict[str, float] = {
             "status_code": self._score_status_code(

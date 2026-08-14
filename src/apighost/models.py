@@ -63,6 +63,9 @@ class ChainVariant(enum.Enum):
     DELETE = "DELETE"   # Attacker deletes owner's resource (data destruction)
     BFLA = "BFLA"       # Attacker tries to access admin endpoint
     MASS_ASSIGNMENT = "MASS_ASSIGNMENT" # Attacker attempts to modify restricted fields
+    EXCESSIVE_DATA = "EXCESSIVE_DATA"
+    RATE_LIMIT = "RATE_LIMIT"
+    INJECTION = "INJECTION"
 
 
 # ─────────────────────────────────────────────

@@ -431,6 +431,66 @@ class ChainExecutor:
                 logger.info(f"{chain.chain_id}: BFLA Attacker={result.read_as_attacker_status}")
                 return result
 
+            if chain.variant in (ChainVariant.RATE_LIMIT, ChainVariant.INJECTION):
+                if not getattr(self.config, 'aggressive', False):
+                    result.verdict = Verdict.SECURE
+                    result.error = "Aggressive tests disabled. Use --aggressive."
+                    return result
+                
+                if chain.variant == ChainVariant.RATE_LIMIT:
+                    attack_ep = chain.attack
+                    payload = await self.generator.generate_payload_async(attack_ep)
+                    url = self._build_url(attack_ep.path, payload.get("path_params", {}))
+                    
+                    tasks = []
+                    for _ in range(20):
+                        tasks.append(client.request(
+                            method=attack_ep.method.value,
+                            url=url,
+                            headers=self._auth_headers(self.config.token_b),
+                            json=payload.get("body"),
+                            params=payload.get("query_params")
+                        ))
+                    
+                    responses = await asyncio.gather(*tasks, return_exceptions=True)
+                    statuses = [r.status_code for r in responses if not isinstance(r, Exception)]
+                    
+                    if 429 in statuses:
+                        result.read_as_attacker_status = 429
+                    else:
+                        result.read_as_attacker_status = 200
+                    
+                    result.read_as_attacker_body = {"statuses": statuses}
+                    return result
+
+                if chain.variant == ChainVariant.INJECTION:
+                    attack_ep = chain.attack
+                    payload = await self.generator.generate_payload_async(attack_ep)
+                    url = self._build_url(attack_ep.path, payload.get("path_params", {}))
+                    
+                    body = payload.get("body")
+                    if isinstance(body, dict):
+                        for k, v in body.items():
+                            if isinstance(v, str):
+                                body[k] = v + "' OR 1=1-- {{7*7}}"
+                    
+                    attacker_response = await self._send_request(
+                        client=client,
+                        method=attack_ep.method.value,
+                        url=url,
+                        headers=self._auth_headers(self.config.token_b),
+                        json_body=body,
+                        query_params=payload.get("query_params")
+                    )
+                    
+                    result.read_as_attacker_status = attacker_response.status_code
+                    try:
+                        result.read_as_attacker_body = attacker_response.json()
+                    except (json.JSONDecodeError, ValueError):
+                        result.read_as_attacker_body = {"text": attacker_response.text}
+                    
+                    return result
+
             create_payload = await self.generator.generate_payload_async(
                 chain.create
             )
@@ -607,6 +667,14 @@ class ChainExecutor:
                 
                 # We overwrite attacker_response with the read for verdict check
                 attacker_response = verify_response
+            elif chain.variant == ChainVariant.EXCESSIVE_DATA:
+                attacker_response = await self._send_request(
+                    client=client,
+                    method=chain.read.method.value,
+                    url=read_url,
+                    headers=self._auth_headers(self.config.token_a),
+                    query_params=read_query_params,
+                )
             else:
                 # Fallback to standard READ
                 attacker_response = await self._send_request(
