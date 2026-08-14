@@ -84,6 +84,7 @@ class Endpoint:
     response_schema: dict[str, Any] | None = None  # 200/201 response schema
     has_path_params: bool = False      # True if path contains {param}
     path_param_names: list[str] = field(default_factory=list)  # e.g., ["id"]
+    tags: list[str] = field(default_factory=list)      # OpenAPI tags
 
     @property
     def base_path(self) -> str:

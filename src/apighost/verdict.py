@@ -517,12 +517,21 @@ class VerdictEngine:
         if result.chain.variant == ChainVariant.EXCESSIVE_DATA:
             schema = result.chain.read.response_schema
             if schema and result.read_as_attacker_status == 200:
-                def extract_schema_keys(s, prefix=""):
+                def extract_schema_keys(s, prefix="", visited=None):
+                    if visited is None:
+                        visited = set()
                     keys = set()
                     if not isinstance(s, dict): return keys
+                    
+                    # Prevent infinite recursion on self-referencing schemas
+                    s_id = id(s)
+                    if s_id in visited:
+                        return keys
+                    visited.add(s_id)
+                    
                     # If it's an array schema at root
                     if "items" in s and not "properties" in s:
-                        return extract_schema_keys(s["items"], "[]")
+                        return extract_schema_keys(s["items"], "[]", visited)
                     
                     props = s.get("properties", {})
                     for k, v in props.items():
@@ -530,9 +539,11 @@ class VerdictEngine:
                         keys.add(current)
                         if isinstance(v, dict):
                             if "properties" in v:
-                                keys.update(extract_schema_keys(v, current))
+                                keys.update(extract_schema_keys(v, current, visited))
                             elif "items" in v and isinstance(v["items"], dict):
-                                keys.update(extract_schema_keys(v["items"], f"{current}[]"))
+                                keys.update(extract_schema_keys(v["items"], f"{current}[]", visited))
+                    
+                    visited.remove(s_id)
                     return keys
                 
                 expected_keys = extract_schema_keys(schema)
@@ -567,8 +578,9 @@ class VerdictEngine:
         # Phase 2: INJECTION
         if result.chain.variant == ChainVariant.INJECTION:
             status = result.read_as_attacker_status
-            body_text = str(result.read_as_attacker_body).lower()
-            if status >= 500 or "syntax error" in body_text or "sql" in body_text or "jinja" in body_text:
+            body_text = str(result.read_as_attacker_body)
+            # Evaluate 49 means SSTI {{7*7}} worked
+            if status >= 500 or "syntax error" in body_text.lower() or "sql" in body_text.lower() or "jinja" in body_text.lower() or "49" in body_text:
                 result.verdict = Verdict.CONFIRMED
                 result.score = 1.0
             else:

@@ -185,6 +185,8 @@ class ChainBuilder:
         path_lower = endpoint.path.lower()
         if any(keyword in path_lower for keyword in ["/admin/", "/internal/", "/system/"]):
             return True
+        if hasattr(endpoint, 'tags') and endpoint.tags and any("admin" in t.lower() for t in endpoint.tags):
+            return True
         return False
 
     # ─────────────────────────────────────────
@@ -241,6 +243,7 @@ class ChainBuilder:
                     response_schema=response_schema,
                     has_path_params=has_path_params,
                     path_param_names=path_params,
+                    tags=details.get("tags", []),
                 )
 
                 self.endpoints.append(endpoint)

@@ -314,6 +314,14 @@ def scan(
         False, "--aggressive",
         help="Enable aggressive tests (Rate Limiting, Injection)",
     ),
+    burst: int = typer.Option(
+        50, "--burst",
+        help="Number of concurrent requests for rate limit testing"
+    ),
+    canaries: str = typer.Option(
+        None, "--canaries",
+        help="JSON string of mass assignment canaries"
+    ),
 ) -> None:
     """
     Execute a full BOLA scan against a live API.
@@ -390,6 +398,14 @@ def scan(
         console.print("Valid modes: bearer, api_key, cookie, basic, custom")
         raise typer.Exit(code=2)
 
+    canaries_dict = None
+    if canaries:
+        try:
+            canaries_dict = json.loads(canaries)
+        except json.JSONDecodeError:
+            console.print("[bold red]Error:[/] Invalid JSON for canaries")
+            raise typer.Exit(code=1)
+
     executor_config = ExecutorConfig(
         base_url=target,
         token_a=token_a,
@@ -401,6 +417,8 @@ def scan(
         max_concurrent=concurrent,
         verify_ssl=not no_verify,
         aggressive=aggressive,
+        burst=burst,
+        canaries=canaries_dict,
     )
     executor = ChainExecutor(executor_config, resolved)
 
@@ -608,6 +626,38 @@ def version() -> None:
     console.print(f"[bold cyan]APIGhost[/] v{__version__}")
     console.print("Stateful BOLA Detection Engine")
     console.print("https://github.com/Arul-AGC/APIGhost")
+
+
+# ─────────────────────────────────────────────
+# Crawler Command
+# ─────────────────────────────────────────────
+
+@app.command(name="crawl")
+def crawl(
+    base_url: str = typer.Argument(..., help="Base URL of the target API"),
+    wordlist: str = typer.Argument(..., help="Path to a wordlist file"),
+    output: str = typer.Option("spec.json", "--output", "-o", help="Output spec file path"),
+) -> None:
+    """Spec-less auto-discovery crawler."""
+    from apighost.crawler import APICrawler
+    
+    console.print(f"[bold blue]APIGhost Spec-less Crawler[/]")
+    
+    path_path = Path(wordlist)
+    if not path_path.exists():
+        console.print(f"[bold red]Error:[/] Wordlist not found: {wordlist}")
+        raise typer.Exit(code=1)
+        
+    words = path_path.read_text(encoding="utf-8").splitlines()
+    words = [w.strip() for w in words if w.strip()]
+    
+    crawler = APICrawler(base_url, words)
+    spec = asyncio.run(crawler.crawl())
+    
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump(spec, f, indent=2)
+        
+    console.print(f"[bold green]Success![/] Crawled and saved spec to {output}")
 
 
 # ─────────────────────────────────────────────

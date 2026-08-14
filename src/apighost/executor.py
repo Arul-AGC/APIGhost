@@ -227,6 +227,9 @@ class ExecutorConfig:
     auth_scheme: str = "Bearer"            # Scheme prefix (for BEARER mode)
     token_refresh_cmd: str | None = None   # Shell command to refresh expired tokens
     verify_ssl: bool = True                # Verify SSL certs
+    aggressive: bool = False               # Enable aggressive tests
+    burst: int = 50                        # Rate limit test concurrent burst
+    canaries: dict | None = None           # Mass assignment canaries
 
 
 # ─────────────────────────────────────────────
@@ -443,7 +446,7 @@ class ChainExecutor:
                     url = self._build_url(attack_ep.path, payload.get("path_params", {}))
                     
                     tasks = []
-                    for _ in range(20):
+                    for _ in range(self.config.burst):
                         tasks.append(client.request(
                             method=attack_ep.method.value,
                             url=url,
@@ -633,7 +636,7 @@ class ChainExecutor:
                 )
             elif chain.variant == ChainVariant.MASS_ASSIGNMENT:
                 update_payload = await self.generator.generate_payload_async(attack_ep)
-                canary_fields = {"is_admin": True, "role": "admin", "balance": 99999}
+                canary_fields = self.config.canaries if self.config.canaries else {"is_admin": True, "balance": 99999}
                 if "body" in update_payload and isinstance(update_payload["body"], dict):
                     update_payload["body"].update(canary_fields)
                 
